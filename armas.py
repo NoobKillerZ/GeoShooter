@@ -14,6 +14,119 @@ import random
 
 import pygame
 
+# ------------------------------------------------------------------ estelas
+# La estela de cada bala es un sprite pre-renderizado que se blitea con
+# BLEND_RGB_ADD. Antes era un draw.line por punto de historial; con 90 balas
+# eso son 90 trazos y encima tapa el suelo en vez de sumar luz.
+#
+# El detalle que obliga a hacerlo con sprites: BLEND_RGB_ADD ignora el canal
+# alfa del origen y suma el RGB tal cual. Un sprite con alfa 0 sumaria igual.
+# Por eso el desvanecido va horneado en el RGB, no en el alfa, y por eso el
+# sprite se dibuja opaco.
+#
+# El sprite se construye ya girado, con pygame.transform.rotate. Rotar es lo
+# que mas cuesta de esta llamada, y ademas tiene dos problemas que lo hacen
+# inservible aqui:
+#
+#   1) Encaja el resultado en un cuadrado. Un rastro de 40x5 pixeles rotado
+#      45 grados sale en un cuadrado de 93x93: se dibujan 8649 pixeles para
+#      200 utiles, un 4000% de relleno. Con balas rapidas el rastro llega a
+#      cientos de pixeles y el desperdicio se va a miles de pixeles por bala.
+#   2) El sprite plano tiene la cabeza en un borde, y al rotar con el centro
+#      como pivote la cabeza se desplaza respecto al punto de anclaje. Con el
+#      ancla en el centro del rastro habria que compensar ese desplazamiento
+#      pixel a pixel.
+#
+# Dibujandolo girado desde el principio las dos cosas desaparecen: la imagen
+# tiene justo el tamano del rastro y la cabeza cae donde debe.
+#
+# El angulo va cuantizado a 6 grados, y el largo a multiplos de 4. El error de
+# orientacion es de 3 grados, que en un rastro de 40 pixeles son 2 pixeles de
+# desviacion en la punta: invisible.
+_ESTELA_CACHE = {}
+_ESTELA_ANGULO = 6
+_ESTELA_LARGO = 4
+# Un rastro mas largo que esto deja de leerse como estela y se vuelve un tubo
+# de luz. Ademas el railgun a 2200 px/s genera un rastro de 880 px, que como
+# sprite son 880x25 pixeles por angulo.
+_ESTELA_MAX_LARGO = 220
+_ESTELA_MAX = 900
+
+
+def _estela_img(largo, radio, color, angulo):
+    """Sprite de estela ya girado, con la cabeza en el centro del sprite.
+
+    Se ancla en el centro para que el blit sea un `-ancho/2` sin más: como la
+    cabeza esta en el centro, el punto mas brillante cae justo en la posicion
+    de la bala.
+
+    El angulo se mide como pygame lo usa, en sentido antihorario.
+    """
+    largo = max(4, min(_ESTELA_MAX_LARGO,
+                       int(largo) // _ESTELA_LARGO * _ESTELA_LARGO))
+    angulo = int(round(angulo / _ESTELA_ANGULO)) * _ESTELA_ANGULO
+    # El grosor sale de la bala y un poco de su velocidad: un proyectil gordo
+    # deja un rastro mas ancho, y uno rapido estira el suyo. El tope evita
+    # que un proyectil enorme deje una franja de luz de 30 pixeles.
+    semi = int(min(5, 1 + radio * 0.5 + largo * 0.008))
+    if semi < 1:
+        semi = 1
+    clave = (largo, semi, color, angulo)
+    img = _ESTELA_CACHE.get(clave)
+    if img is not None:
+        return img
+
+    cos_a = math.cos(math.radians(angulo))
+    sin_a = math.sin(math.radians(angulo))
+    # Se extiende la caja lo justo para que quepa el rastro girado. La cabeza
+    # esta en el centro y la cola se extiende hacia atras, asi que la caja
+    # necesita medio ancho de margen a cada lado.
+    medio = largo * 0.5
+    # La cabeza esta en el centro y la cola se extiende hacia atras, asi que
+    # la caja necesita medio largo a cada lado mas el ancho del rastro.
+    w = int(medio * abs(cos_a) * 2) + semi * 2 + 4
+    h = int(medio * abs(sin_a) * 2) + semi * 2 + 4
+    w = max(4, w - (w % 2))
+    h = max(4, h - (h % 2))
+    img = pygame.Surface((w, h), pygame.SRCALPHA)
+    cx, cy = w * 0.5, h * 0.5
+    for i in range(largo):
+        # d va de 0 (cabeza, en la posicion de la bala) a -1 (cola, la mas
+        # vieja): el rastro crece hacia atras.
+        d = -i / float(largo - 1)
+        # Perfil longitudinal: la cabeza highlight y la cola se apaga deprisa.
+        g = (1.0 + d) ** 1.7
+        for j in range(-semi, semi + 1):
+            # Perfil transversal: cae a cero en los bordes. Con j entero y
+            # `1 - abs(j)` solo el centro de la fila saldria a luz, y el
+            # rastro seria un hilo de un pixel; por eso se normaliza.
+            f = 1.0 - abs(j) / float(semi + 1)
+            v = g * f * f
+            if v <= 0.004:
+                continue
+            px = int(cx + cos_a * d * medio - sin_a * j)
+            py = int(cy + sin_a * d * medio + cos_a * j)
+            if 0 <= px < w and 0 <= py < h:
+                # set_at pisa, y al girar dos tramos pueden caer en el mismo
+                # pixel: si se escribiera a ciegas, el tramo mas apagado
+                # dejaria un agujero en el rastro. Se guarda el mas brillante.
+                actual = img.get_at((px, py))
+                if sum(actual[:3]) < v * 255:
+                    # Horneado en RGB a proposito: el alfa no cuenta con
+                    # BLEND_RGB_ADD.
+                    img.set_at((px, py), (min(255, int(color[0] * v)),
+                                          min(255, int(color[1] * v)),
+                                          min(255, int(color[2] * v)), 255))
+    # Con 8 armas, 55 largos y 60 angulos salen 26400 combinaciones, pero solo
+    # se crean las que de verdad se piden. Si aun asi se pasa, mejor vaciar la
+    # cache que dejar que crezca sin limite.
+    if len(_ESTELA_CACHE) > _ESTELA_MAX:
+        _ESTELA_CACHE.clear()
+    _ESTELA_CACHE[clave] = img
+    return img
+
+
+
 # El juego corre a 60 FPS; las velocidades se expresan en pixeles por segundo
 # y se convierten a desplazamiento por frame con este factor.
 PASO = 1.0 / 60.0
@@ -240,16 +353,25 @@ class Proyectil:
         if x < -40 or y < -40 or x > vw + 40 or y > vh + 40:
             return
 
-        # Estela
+        # Estela: rastro de luz que se suma a la escena. Va por sprite y no
+        # por draw.line porque summing luz es un blit con BLEND_RGB_ADD, y
+        # draw.line no admite flags de mezcla.
         if len(self.estela) > 1:
-            puntos = [(int(px - cam_x), int(py - cam_y)) for px, py in self.estela]
-            total = len(puntos)
-            for i in range(1, total):
-                f = i / total
-                col = (int(self.color[0] * f * 0.75),
-                       int(self.color[1] * f * 0.75),
-                       int(self.color[2] * f * 0.75))
-                pygame.draw.line(pantalla, col, puntos[i - 1], puntos[i], 1 + int(f * 2))
+            # estela[0] es la posicion mas vieja y estela[-1] la actual, que
+            # es justo donde esta la bala: el rastro va de la vieja a la nueva.
+            x0, y0 = self.estela[0]
+            x1, y1 = self.estela[-1]
+            largo = math.hypot(x1 - x0, y1 - y0)
+            if largo > 2.0:
+                img = _estela_img(largo, self.radio, self.color,
+                                  math.degrees(math.atan2(y1 - y0, x1 - x0)))
+                # La cabeza del sprite esta en su centro, asi que anclarlo en
+                # la posicion actual de la bala es restarle la mitad.
+                pantalla.blit(
+                    img,
+                    (int(x - cam_x - img.get_width() * 0.5),
+                     int(y - cam_y - img.get_height() * 0.5)),
+                    special_flags=pygame.BLEND_RGB_ADD)
 
         cos_a = math.cos(self.angulo)
         sin_a = math.sin(self.angulo)
