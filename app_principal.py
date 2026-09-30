@@ -17,6 +17,7 @@ from datetime import date
 import pygame  # type: ignore[import-not-found]
 
 import decoracion
+import decals
 import efectos
 import iconos
 import iluminacion
@@ -147,6 +148,13 @@ class Juego:
         # Se crea una sola vez, aqui y no en reiniciar(), para que la cache de
         # texturas de halo sobreviva entre partidas.
         self.bloom = postproceso.Bloom(ANCHO, ALTO)
+        # Marcas en el suelo: los impactos y las explosiones dejan rastro. Se
+        # cuelga del gestor de particulas, que es por donde pasan todos los
+        # impactos y explosiones del juego.
+        self.marcas = self.particulas.marcas_(decals.Marcas())
+        # Trozos de enemigos al morir. Es una lista propia y no del gestor de
+        # particulas porque cada trozo gira sobre si mismo.
+        self.fragmentos = []
         self.reiniciar()
 
     def reiniciar(self):
@@ -172,6 +180,10 @@ class Juego:
         # Zonas de peligro telegrafiadas (morteros, bombardeos, laser).
         self.avisos = []
         self.particulas.vaciar()
+        # Las marcas son de la partida, no del proceso: una arena nueva empieza
+        # sin el rastro de la anterior.
+        self.marcas.vaciar()
+        self.fragmentos = []
         self.oleada = 0
         self.puntaje = 0
         self.bajas = 0
@@ -419,6 +431,16 @@ class Juego:
             self._partir_divisorio(e, crias)
         escala = 1.6 if e.es_jefe else 1.0
         self.particulas.explosion(e.x, e.y, escala)
+        # El enemigo se rompe en trozos que salen despedidos. Van por su cuenta
+        # y no por el gestor de particulas porque giran sobre si mismos.
+        self.fragmentos.extend(e.explodes_en())
+        # Restos del enemigo en el suelo, del color de la criatura. Los jefes
+        # dejan mas rastro: mas grande y con grieta alrededor.
+        if e.es_jefe:
+            self.marcas.salpicadura(e.x, e.y, e.color, escala=2.2)
+            self.marcas.grieta(e.x, e.y, escala=1.6)
+        else:
+            self.marcas.salpicadura(e.x, e.y, e.color)
         # La explosion ilumina de verdad, no solo pintada: un jefe ilumina mas.
         self.luces.destello(e.x, e.y, 110 * escala, e.color,
                             intensidad=0.45 if e.es_jefe else 0.28,
@@ -564,6 +586,13 @@ class Juego:
 
         self._colisiones()
         self.particulas.actualizar()
+        # Las marcas envejecen a su ritmo: se van cuando se acaba su vida.
+        self.marcas.actualizar()
+        # Trozos de enemigos: se quitan los que ya se han desintegrado.
+        if self.fragmentos:
+            for fr in self.fragmentos:
+                fr.actualizar()
+            self.fragmentos = [fr for fr in self.fragmentos if fr.edad < fr.vida]
         self._actualizar_habilidades()
         self._actualizar_luces()
 
@@ -618,8 +647,12 @@ class Juego:
         # pinta su halo y al final del frame se difumina y se suma.
         self.bloom.iniciar()
         self.arena.dibujar(self.pantalla, cx, cy, ANCHO, ALTO)
-        # Props bajo las unidades: charcos, grietas y manchas.
+        # Props bajos: charcos, grietas y manchas del terreno.
         self.decoracion.dibujar_bajo_muros(self.pantalla, cx, cy, ANCHO, ALTO)
+        # Marcas de combate: van sobre los props bajos y bajo las unidades, que
+        # es donde caen de verdad (un agujero en un muro, una quemadura en el
+        # suelo). Antes que los enemigos, para que estos pisen encima.
+        self.marcas.dibujar(self.pantalla, cx, cy, ANCHO, ALTO)
 
         # Powerups
         t = pygame.time.get_ticks() / 220.0
@@ -655,6 +688,11 @@ class Juego:
             # no nuble la pantalla entera.
             self.bloom.marcar(p.x - cx, p.y - cy, p.radio * 3.4, p.color,
                               fuerza=0.5)
+
+        # Trozos de enemigos: van con las particulas, encima de las unidades,
+        # porque un enemigo al morir se rompe donde estaba, no por debajo.
+        for fr in self.fragmentos:
+            fr.dibujar(self.pantalla, cx, cy)
 
         self.particulas.dibujar(self.pantalla, cx, cy)
         # Props altos: tuberias, cables, chatarra y el polvo que flota.

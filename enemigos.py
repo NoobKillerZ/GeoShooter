@@ -271,6 +271,64 @@ class Aviso:
                                    3 + int(2 * abs(math.sin(t * 6 + k))))
 
 
+class Fragmento:
+    """Trozo de enemigo que sale despedido al morir.
+
+    Cada trozo es un poligono rigido con su propia velocidad y su propio giro.
+    No usa el sistema de particulas porque este no se mueve en linea recta:
+    un trozo que sale disparado y luego frena no lee como un trozo.
+    """
+
+    __slots__ = ("x", "y", "vx", "vy", "giro", "angulo", "puntos", "color",
+                 "borde", "edad", "vida", "escala")
+
+    def __init__(self, x, y, puntos, color, borde, vx, vy, vida, escala=1.0):
+        self.x = x
+        self.y = y
+        self.vx = vx
+        self.vy = vy
+        self.giro = random.uniform(-0.28, 0.28)
+        self.angulo = 0.0
+        self.puntos = puntos
+        self.color = color
+        self.borde = borde
+        self.edad = 0
+        self.vida = vida
+        self.escala = escala
+
+    def actualizar(self):
+        self.edad += 1
+        if self.edad >= self.vida:
+            return False
+        self.x += self.vx
+        self.y += self.vy
+        self.angulo += self.giro
+        # Frena como un proyectil, no como un roce de particula: el rozamiento
+        # bajo hace que el trozo derape, que es lo que da peso.
+        self.vx *= 0.94
+        self.vy *= 0.94
+        return True
+
+    def dibujar(self, pantalla, cam_x, cam_y):
+        # Se encoge al final en vez de desvanecerse: al encogerse el ultimo
+        # frame se ve como que el trozo se desintegra, no como que se apaga.
+        f = 1.0 - (self.edad / self.vida) ** 4.0
+        if f <= 0.05:
+            return
+        ca, sa = math.cos(self.angulo), math.sin(self.angulo)
+        puntos = []
+        for lx, ly in self.puntos:
+            x = lx * f
+            y = ly * f
+            puntos.append((int(self.x - cam_x + x * ca - y * sa),
+                           int(self.y - cam_y + x * sa + y * ca)))
+        if len(puntos) < 3:
+            return
+        pygame.draw.polygon(pantalla, self.color, puntos)
+        if f > 0.45:
+            pygame.draw.polygon(pantalla, self.borde, puntos, 1)
+
+
 class Enemigo:
     def __init__(self, x, y, tipo, escala=1.0):
         cfg = TIPOS[tipo]
@@ -1291,6 +1349,58 @@ class Enemigo:
     def _rombo(self, pantalla, px, py, r, relleno, borde):
         self._poligono(pantalla, px, py, [(r, 0), (0, r), (-r, 0), (0, -r)],
                        relleno, borde)
+
+    # ------------------------------------------------------ fragmentacion
+    def explodes_en(self, cantidad=None):
+        """Devuelve los `Fragmento` en los que se rompe este enemigo.
+
+        Los trozos salen de la misma silueta que se dibuja, recortada en
+        sectores: al arrancar en pedazos de la forma real, el conjunto se lee
+        como "se ha roto esto" y no como "han salido unos triangulos".
+        """
+        r = self.radio
+        if cantidad is None:
+            # Un jefe se rompe en mas trozos: es mas grande y su muerte tiene
+            # que pesar mas que la de un corredor.
+            cantidad = 14 if self.es_jefe else max(4, min(9, int(r * 0.7)))
+        cuerpo = self.color
+        borde = _oscuro(self.color, 0.45)
+        fragmentos = []
+        # Los trozos se reparten en sectores alrededor del centro. Cada sector
+        # lleva su parte de la silueta, mas un borde hacia fuera para que el
+        # trozo tenga volumen y no sea una rebanada plana.
+        for k in range(cantidad):
+            a0 = k * TAU / cantidad
+            a1 = (k + 1) * TAU / cantidad
+            am = (a0 + a1) * 0.5
+            # Se estrecha un poco el sector para que los trozos no se solapen.
+            hueco = (a1 - a0) * 0.12
+            p0 = a0 + hueco
+            p1 = a1 - hueco
+            # Vértices: centro, borde del sector y un punto medio fuera, que es
+            # lo que hace que el trozo tenga una cara convexa.
+            r_ext = r * random.uniform(0.75, 1.15)
+            puntos = [
+                (0.0, 0.0),
+                (math.cos(p0) * r_ext, math.sin(p0) * r_ext),
+                (math.cos(am) * r_ext * 1.12, math.sin(am) * r_ext * 1.12),
+                (math.cos(p1) * r_ext, math.sin(p1) * r_ext),
+            ]
+            # El primer vértice se separa un poco del centro: si no, todos los
+            # trozos se tocan en un punto y parecen una rueda.
+            puntos[0] = (math.cos(am) * r * 0.18, math.sin(am) * r * 0.18)
+            # Velocidad: hacia fuera del centro, con dispersion. La dispersion
+            # es lo que evita que salgan en linea recta como un abanico.
+            vel = random.uniform(1.6, 4.4)
+            desvio = random.uniform(-0.5, 0.5)
+            va = am + desvio
+            fragmentos.append(Fragmento(
+                self.x, self.y, puntos, cuerpo, borde,
+                math.cos(va) * vel, math.sin(va) * vel,
+                vida=random.randint(26, 46),
+                escala=r / 12.0,
+            ))
+        return fragmentos
 
 
 def _claro(color, f):

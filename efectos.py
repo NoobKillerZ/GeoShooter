@@ -170,6 +170,16 @@ class GestorParticulas:
         self.anillos = []
         self.textos = []
         self._fuente_cache = {}
+        # Marcas en el suelo. Es None por defecto para que los tests y el resto
+        # de codigo que usa GestorParticulas suelto no dependan de el; el juego
+        # se lo cuelga en Juego.__init__ y a partir de ahi todo impacto y toda
+        # explosion dejan rastro.
+        self.marcas = None
+
+    def marcas_(self, gestor):
+        """Conecta el gestor de marcas y lo devuelve, para encadenar."""
+        self.marcas = gestor
+        return gestor
 
     # ------------------------------------------------------------- internos
     def _fuente(self, tamano):
@@ -226,6 +236,9 @@ class GestorParticulas:
     def impacto(self, x, y, color=(255, 205, 120)):
         self.agregar(x, y, color, cantidad=6, velocidad_px=2.0, vida_frames=14, radio=2)
         self.agregar(x, y, (255, 255, 255), cantidad=2, velocidad_px=1.2, vida_frames=7, radio=2)
+        # El agujero se queda: las particulas se van en 14 frames, esto no.
+        if self.marcas is not None:
+            self.marcas.impacto(x, y, color)
 
     def explosion(self, x, y, escala=1.0):
         self.agregar(x, y, (255, 130, 60), cantidad=16, velocidad_px=2.6,
@@ -236,6 +249,8 @@ class GestorParticulas:
                      vida_frames=34, radio=5, rozamiento=0.9)
         self.anillo(x, y, (255, 190, 110), int(34 * escala), vida=16, grosor=3)
         self.anillo(x, y, (255, 120, 70), int(20 * escala), vida=11, grosor=2)
+        if self.marcas is not None:
+            self.marcas.quemadura(x, y, escala)
 
     def destello_powerup(self, x, y, color):
         self.agregar(x, y, color, cantidad=14, velocidad_px=1.8, vida_frames=22, radio=3)
