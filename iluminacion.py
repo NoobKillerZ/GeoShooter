@@ -141,6 +141,10 @@ class Luces:
         # Contadores del ultimo frame, para medir.
         self.dibujadas = 0
         self.descartadas = 0
+        # Bloom opcional. Si se asigna, cada luz que llega al umbral dibuja su
+        # halo en el buffer emisivo de post-proceso. Va por referencia para no
+        # que iluminacion tenga que importar postproceso.
+        self.bloom = None
 
     # --------------------------------------------------------------- luces
     def crear(self, x, y, radio, color=(255, 240, 200), intensidad=1.0,
@@ -323,6 +327,14 @@ class Luces:
             capa.blit(img, (int(sx - r), int(sy - r)),
                       special_flags=pygame.BLEND_RGBA_ADD)
             self.dibujadas += 1
+            # Halo para el bloom. La luz ya ilumina la capa de arriba; esto es
+            # el resplandor que se sale de su borde y hace que los fogonazos
+            # parezcan emitters de verdad y no manchas de color.
+            if self.bloom is not None:
+                # La fuerza del halo sigue al brillo, con un pequeño realce
+                # para que un destello a tope destaque sobre una luz tenue.
+                self.bloom.marcar(sx, sy, r * 0.85, luz.color,
+                                  fuerza=min(1.0, brillo * 1.15))
 
         # Un solo blit multiplicativo sobre la pantalla: la capa ya lleva el
         # ambiente de base, asi que no hace falta ninguna superficie intermedia

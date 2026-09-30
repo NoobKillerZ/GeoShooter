@@ -21,6 +21,7 @@ import efectos
 import iconos
 import iluminacion
 import pantallas
+import postproceso
 import progresion
 import puntajes
 import armas as armas_mod
@@ -142,6 +143,10 @@ class Juego:
         # vuelve a pintar.
         self._cache_texto = {}
         self._cache_texto_orden = []
+        # Bloom: buffer emisivo que se difumina y se suma al final del frame.
+        # Se crea una sola vez, aqui y no en reiniciar(), para que la cache de
+        # texturas de halo sobreviva entre partidas.
+        self.bloom = postproceso.Bloom(ANCHO, ALTO)
         self.reiniciar()
 
     def reiniciar(self):
@@ -151,6 +156,9 @@ class Juego:
         self.decoracion = decoracion.Decoracion(self.arena)
         self.luces = iluminacion.Luces(ANCHO, ALTO)
         self.decoracion.luces_ambiente(self.luces)
+        # El gestor de luces es nuevo en cada partida, asi que hay que
+        # volver a colgarle el bloom (que si sobrevive).
+        self.luces.bloom = self.bloom
         # Luz del jugador: siempre presente, sigue al personaje. Es un tinte
         # calido, no un foco: con intensidad alta se comia el color del mapa.
         self.luz_jugador = self.luces.crear(0, 0, 210, (255, 244, 214),
@@ -606,6 +614,9 @@ class Juego:
         # Relleno previo: la zona que la arena no cubre (solo el margen del
         # temblor) no debe conservar lo dibujado en el frame anterior.
         self.pantalla.fill(COL_FONDO_EXT)
+        # El buffer de bloom se vacia aqui: a partir de ahora, quien brille
+        # pinta su halo y al final del frame se difumina y se suma.
+        self.bloom.iniciar()
         self.arena.dibujar(self.pantalla, cx, cy, ANCHO, ALTO)
         # Props bajo las unidades: charcos, grietas y manchas.
         self.decoracion.dibujar_bajo_muros(self.pantalla, cx, cy, ANCHO, ALTO)
@@ -639,6 +650,11 @@ class Juego:
 
         for p in self.proyectiles:
             p.dibujar(self.pantalla, cx, cy)
+            # Halo de bala: el proyectil ilumina lo que tiene alrededor. Con
+            # el radio del proyectil y no con el de la luz, para que un rifle
+            # no nuble la pantalla entera.
+            self.bloom.marcar(p.x - cx, p.y - cy, p.radio * 3.4, p.color,
+                              fuerza=0.5)
 
         self.particulas.dibujar(self.pantalla, cx, cy)
         # Props altos: tuberias, cables, chatarra y el polvo que flota.
@@ -649,6 +665,11 @@ class Juego:
         # barra de vida no se apaguen con la luz. Sin oclusion por muros: con
         # ella la luz se recortaba y parecia que solo se veia un circulo.
         self.luces.componer(self.pantalla, cx, cy)
+
+        # Bloom: difumina los halos acumulados y los suma. Va despues de
+        # componer (para que el halo salga de la luz ya compuesta) y antes de
+        # la vineta y el HUD, que deben quedarse nitidos.
+        self.bloom.aplicar(self.pantalla)
 
         self._dibujar_vineta()
         self._dibujar_hud()
