@@ -352,18 +352,47 @@ class Arena:
         T = TAM_CASILLA
 
         # 1) Baldosas del suelo
+        # El grano usa su propio RNG, no self.rng: si el horneado del suelo
+        # consumiera|del self.rng, cada baldosa de detalle desplazaria la
+        # secuencia de spawns y dos arenas con la misma semilla jugarían
+        # distinto. self.rng es solo para el gameplay.
+        rng_grano = random.Random((self.semilla or 0) ^ 0xA11CE)
+        # Cuanto puede apartarse una baldosa de su color base.
+        VAR_BALDOSA = 5
+        # Puntos de granulado por baldosa.
+        GRANO = 7
+
+        def _matiz(base, d):
+            return (max(0, min(255, base[0] + d)),
+                    max(0, min(255, base[1] + d)),
+                    max(0, min(255, base[2] + d)))
+
         for fila in range(self.filas):
             for col in range(self.cols):
                 if (col, fila) in self.muros:
                     continue
                 x, y = col * T, fila * T
                 alterna = (col + fila) % 2 == 0
-                pygame.draw.rect(surf, COL_SUELO_ALT if alterna else COL_SUELO, (x, y, T, T))
+                base = COL_SUELO_ALT if alterna else COL_SUELO
+                # Variacion por baldosa antes del marco: si se tintase despues,
+                # el relleno se comeria la linea de la baldosa y el suelo
+                # quedaria como manchas sin retícula.
+                surf.fill(_matiz(base, rng_grano.randint(-VAR_BALDOSA, VAR_BALDOSA)),
+                          (x, y, T, T))
                 pygame.draw.rect(surf, COL_SUELO_LINEA, (x, y, T, T), 1)
                 if alterna:
                     # Bisel interior suave en las baldosas claras
                     pygame.draw.line(surf, COL_SUELO_ALT, (x + 1, y + 1), (x + T - 1, y + 1))
                     pygame.draw.line(surf, COL_SUELO_ALT, (x + 1, y + 1), (x + 1, y + T - 1))
+                # Granulado fino. Va con margen de 2 px para no pisar el marco,
+                # y sobre todo en oscuro, que es como se lee el hormigon.
+                for _ in range(GRANO):
+                    gx = x + 2 + rng_grano.randrange(T - 4)
+                    gy = y + 2 + rng_grano.randrange(T - 4)
+                    if rng_grano.random() < 0.82:
+                        surf.fill(_matiz(base, -rng_grano.randint(6, 13)), (gx, gy, 1, 1))
+                    else:
+                        surf.fill(_matiz(base, rng_grano.randint(5, 10)), (gx, gy, 1, 1))
 
         # 2) Marcas pintadas en el suelo
         for col, fila, v1, v2 in self._decoraciones:
