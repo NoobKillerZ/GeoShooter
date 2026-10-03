@@ -236,14 +236,42 @@ class Aviso:
             lado = r * 2
             capa = pygame.Surface((lado, lado), pygame.SRCALPHA)
             centro = capa.get_rect().center
-            alpha = int(40 + 120 * avance)
-            pygame.draw.circle(capa, (*self.color, alpha), centro, r)
-            pygame.draw.circle(capa, (*self.color, min(255, alpha + 90)), centro, r, 3)
-            pantalla.blit(capa, (px - r, py - r))
+            cx, cy = centro
+
+            # La zona se pinta como una marca de suelo, no como un neon
+            # flotando: relleno desaturado, rayado de peligro recortado al
+            # circulo y doble anillo. El mismo lenguaje de franjas
+            # diagonales que ya usa arena.py para el suelo, asi que el aviso
+            # del jefe pertenece al escenario y no parece un icono de interfaz.
+            pintura = _apagado(self.color, 0.45)
+            alpha = int(30 + 60 * avance)
+            pygame.draw.circle(capa, (*pintura, alpha), centro, r)
+
+            # Rayado diagonal recortado al circulo: para cada linea a 45 grados
+            # se calcula la cuerda exacta, en vez de pintar un cuadrado y
+            # taparlo (que dejaria esquinas fuera del circulo).
+            raiz = math.sqrt(2.0)
+            paso = 9 if r > 26 else 6
+            for d, media in _cuerdas_circulo(r, paso):
+                nx, ny = d / raiz, d / raiz
+                ux, uy = 1.0 / raiz, -1.0 / raiz
+                mx, my = cx + nx, cy + ny
+                pygame.draw.line(
+                    capa, (*_apagado(self.color, 0.2), int(70 + 90 * avance)),
+                    (int(round(mx - ux * media)), int(round(my - uy * media))),
+                    (int(round(mx + ux * media)), int(round(my + uy * media))), 2)
+
+            # Doble anillo: el exterior es la marca pintada, el interior el
+            # borde que se va cerrando.
+            pygame.draw.circle(capa, (*_apagado(self.color, 0.1), 210), centro, r, 3)
+            pygame.draw.circle(capa, (*self.color, min(255, alpha + 120)),
+                               centro, r - 4, 1)
+
             # Anillo que se cierra: cuenta atras.
             cuenta = int(r * (1.0 - avance)) + 3
             if cuenta > 3:
                 pygame.draw.circle(pantalla, (255, 255, 255), (px, py), cuenta, 2)
+            pantalla.blit(capa, (px - r, py - r))
             k = int(r * 0.22) + 4
             pygame.draw.line(pantalla, self.color, (px - k, py), (px + k, py), 2)
             pygame.draw.line(pantalla, self.color, (px, py - k), (px, py + k), 2)
@@ -1455,6 +1483,33 @@ def _claro(color, f):
 
 def _oscuro(color, f):
     return tuple(max(0, int(c * (1 - f))) for c in color[:3])
+
+
+def _apagado(color, f):
+    """Baja la saturacion sin mover el valor: seem "pintado", no "neon".
+
+    Mezclar hacia el gris de la propia luminancia mantiene el color reconocible
+    (un aviso rojo sigue leyendo como rojo) pero le quita el aspecto de luz
+    emitida que hace que un overlay parezca pegado encima del juego.
+    """
+    luma = (color[0] * 299 + color[1] * 587 + color[2] * 114) / 1000.0
+    return tuple(max(0, min(255, int(c + (luma - c) * f))) for c in color[:3])
+
+
+def _cuerdas_circulo(r, paso):
+    """Lineas a 45 grados dentro de un circulo de radio r, ya recortadas.
+
+    Devuelve (distancia_con_signo, media_cuerda) para cada linea, medidas
+    sobre su normal. La media cuerda es sqrt(r^2 - d^2): con ella el rayado
+    termina justo en el borde. Pintar +-r en vez de +-sqrt(r^2 - d^2) saca las
+    franjas fuera del circulo y la marca deja de leerse como pintada.
+    """
+    limite = r * math.sqrt(2.0) * 0.5
+    d = -limite
+    while d <= limite:
+        if abs(d) < r:
+            yield d, math.sqrt(r * r - d * d)
+        d += paso
 
 
 def jefe_para_oleada(oleada):
