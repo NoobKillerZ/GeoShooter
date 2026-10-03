@@ -50,6 +50,71 @@ def _teñir_cache(color, factor):
     return tinte
 
 
+# ------------------------------------------------------------------ fogonazo
+# El fogonazo de antes eran 7 particulas sueltas en un circulo, mas o menos
+# iguales entre si. Eso no lee como un disparo: una explosion de chispas
+# redondas en todas direcciones es otra cosa. Lo que se quiere es un cono que
+# nace en la boca del arma y se abre hacia atras, con lo mas brillante pegado
+# al canon.
+#
+# Se dibuja como un sprite con la forma ya resuelta, por las mismas razones que
+# la estela de las balas: rotar con el centro como pivote ampliaba la caja a un
+# cuadrado y ademas movia la punta del punto de anclaje.
+#
+# El angulo va cuantizado a 6 grados. Con el cono pegado al cano, 3 grados de
+# error se notan: la punta se separa de la boca del arma.
+_FOG_CACHE = {}
+_FOG_ANGULO = 6
+_FOG_MAX = 300
+
+
+def cono_fogonazo(largo, ancho, angulo, color=(255, 240, 170)):
+    """Sprite del cono de fogonazo, ya teñido y con el angulo cuantizado.
+
+    x = 0 es la punta, pegada a la boca del canon: estrecha y muy brillante.
+    x = largo-1 es la boca abierta, hacia atras, ancha y apagada.
+    """
+    a = int(round(angulo / _FOG_ANGULO)) * _FOG_ANGULO
+    clave = (largo, ancho, color, a)
+    img = _FOG_CACHE.get(clave)
+    if img is not None:
+        return img
+
+    img = pygame.Surface((largo, ancho), pygame.SRCALPHA)
+    medio = (ancho - 1) / 2.0
+    for x in range(largo):
+        t = x / float(largo - 1)
+        brillo = (1.0 - t) ** 1.4
+        semiancho = medio * (1.0 - 0.78 * t)
+        for y in range(ancho):
+            # De 1 en el eje a 0 en el borde: el perfil transversal del cono.
+            f = max(0.0, 1.0 - abs(y - medio) / max(0.5, semiancho))
+            v = brillo * f
+            if v > 0.01:
+                img.set_at((x, y), (min(255, int(255 * v)),
+                                    min(255, int(240 * v)),
+                                    min(255, int(170 * v)), 255))
+
+    # El color llega despues, para no repetir el perfil por cada variante. Se
+    # reescriben los pixeles ya encendidos; los apagados se quedan fuera.
+    if color != (255, 240, 170):
+        rr = color[0] / 255.0
+        gg = color[1] / 255.0
+        bb = color[2] / 255.0
+        for x in range(largo):
+            for y in range(ancho):
+                r, g, b, _a = img.get_at((x, y))
+                if r:
+                    img.set_at((x, y), (min(255, int(r * rr)),
+                                        min(255, int(g * gg)),
+                                        min(255, int(b * bb)), 255))
+
+    if len(_FOG_CACHE) > _FOG_MAX:
+        _FOG_CACHE.clear()
+    _FOG_CACHE[clave] = img
+    return img
+
+
 class Particula:
     """ chispa con rozamiento."""
 
@@ -213,6 +278,26 @@ class GestorParticulas:
     def texto_fuente(self, x, y, texto, fuente, color, vida=48, vy=-1.4):
         """Texto flotante con una fuente ya creada (evita buscarla por tamano)."""
         self.textos.append(Texto(x, y, texto, color, fuente, vida, vy))
+
+    def dibujar_fogonazo(self, pantalla, x, y, angulo, largo=26, ancho=16,
+                         color=(255, 240, 170)):
+        """Fogonazo en cono pegado a la boca del canon.
+
+        Se dibuja aparte de las particulas porque es una forma orientada, no
+        un grupo de chispas: sale del cano y se ensancha hacia atras, con la
+        parte mas brillante pegada al arma. Va con BLEND_RGB_ADD para que sume
+        luz en vez de tapar el fondo.
+
+        La punta del sprite va en su centro, y el sprite se dibuja desplazado
+        media caja hacia delante para que la punta caiga en la boca del canon.
+        El mismo truco que usan las estelas de bala, por el mismo motivo:
+        rotar con el centro como pivote moveria la punta del punto de anclaje.
+        """
+        img = cono_fogonazo(largo, ancho, math.degrees(angulo), color)
+        ux, uy = math.cos(angulo), math.sin(angulo)
+        dx = int(x + ux * img.get_width() * 0.5 - img.get_width() * 0.5)
+        dy = int(y + uy * img.get_width() * 0.5 - img.get_height() * 0.5)
+        pantalla.blit(img, (dx, dy), special_flags=pygame.BLEND_RGB_ADD)
 
     # ------------------------------------------------------------- efectos
     def destello_disparo(self, x, y, direccion):

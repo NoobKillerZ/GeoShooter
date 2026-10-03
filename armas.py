@@ -14,6 +14,8 @@ import random
 
 import pygame
 
+from efectos import cono_fogonazo
+
 # ------------------------------------------------------------------ estelas
 # La estela de cada bala es un sprite pre-renderizado que se blitea con
 # BLEND_RGB_ADD. Antes era un draw.line por punto de historial; con 90 balas
@@ -308,6 +310,11 @@ class Proyectil:
         # Giro del angulo por frame: los proyectiles en espiral no apuntan al
         # jugador, giran sobre si mismos mientras avanzan.
         self.gira = gira
+        # Fogonazo de la boca: solo los primeros frames, mientras la bala sigue
+        # pegada al arma. El largo va con la forma: una onda expansiva no
+        # lleva cono porque su "boca" es el aro entero.
+        self.fogonazo = 3 if forma in ("bala", "perdigon", "orbe") else 0
+        self.fogonazo_largo = 26 if forma == "bala" else 18
 
     def actualizar(self, arena, particulas):
         self.angulo += self.gira
@@ -424,6 +431,22 @@ class Proyectil:
         else:  # bala / orbita
             pygame.draw.circle(pantalla, self.color, (x, y), self.radio)
             pygame.draw.circle(pantalla, claro, (x, y), max(1, self.radio - 1), 1)
+
+        # Fogonazo de la boca del canon: solo los primeros frames de vida, que
+        # es cuando la bala sigue pegada al arma. Se dibuja al final, encima
+        # de la bala, para que sea lo mas brillante de la escena.
+        if self.fogonazo > 0:
+            self.fogonazo -= 1
+            img = cono_fogonazo(self.fogonazo_largo, 16, math.degrees(self.angulo),
+                                self.color)
+            ux, uy = math.cos(self.angulo), math.sin(self.angulo)
+            # La punta va en el centro del sprite, y se ancla en la posicion
+            # actual del proyectil, que en estos frames es la boca del arma.
+            pantalla.blit(
+                img,
+                (int(x + ux * img.get_width() * 0.5 - img.get_width() * 0.5),
+                 int(y + uy * img.get_width() * 0.5 - img.get_height() * 0.5)),
+                special_flags=pygame.BLEND_RGB_ADD)
 
 
 class ArmaJugador:

@@ -549,8 +549,9 @@ class Juego:
                                        critico=critico,
                                        critico_mult=jug.critico_mult) or []:
                 self.proyectiles.append(p)
-                self.particulas.destello_disparo(p.x, p.y, p.angulo)
-                # Fogonazo en la boca del arma, mas grande si fue critico.
+                # El fogonazo en cono lo dibuja la propia bala en sus primeros
+                # frames (Proyectil.fogonazo). Aqui solo queda la luz que
+                # ilumina la escena alrededor.
                 self.luces.destello(p.x, p.y, 70 if critico else 52,
                                     (255, 230, 170) if critico else (255, 214, 150),
                                     0.30 if critico else 0.20,
