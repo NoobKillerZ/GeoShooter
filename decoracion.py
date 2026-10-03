@@ -24,6 +24,11 @@ import random
 
 import pygame
 
+from arena import TAM_CASILLA
+
+# Tamano de una celda del mapa. Lo usa la oclusion horneada de los muros.
+T = TAM_CASILLA
+
 # Paleta de decoracion.
 COL_GRIETA = (26, 27, 36)
 COL_GRIETA_CLARA = (48, 50, 64)
@@ -80,6 +85,7 @@ class Decoracion:
         self.arena = arena
         self.props = []
         self._bajo_muros = None
+        self._bajo_muros_ocl = None
         self._sobre_muros = None
         self._arena_ref = None
         self.generar()
@@ -361,6 +367,20 @@ class Decoracion:
         """Capa 0: charcos, grietas, manchas y rejillas, bajo las unidades."""
         self._blit_camara(self.superficie_bajo_muros(), pantalla, cam_x, cam_y,
                           ancho_visor, alto_visor)
+        # La oclusion va en una capa aparte porque necesita multiplicar en
+        # lugar de sumar: la decoracion brighten (charcos, chatarra) y la
+        # oclusion oscurece. Con la misma mezcla una anula a la otra.
+        self._blit_camara_mult(self.superficie_occlusion_muros(), pantalla,
+                               cam_x, cam_y, ancho_visor, alto_visor)
+
+    def _blit_camara_mult(self, surf, pantalla, cam_x, cam_y, ancho_visor, alto_visor):
+        cx, cy = int(math.floor(cam_x)), int(math.floor(cam_y))
+        sx, sy = max(0, cx), max(0, cy)
+        ex = min(self.arena.ancho, cx + ancho_visor + 8)
+        ey = min(self.arena.alto, cy + alto_visor + 8)
+        if ex > sx and ey > sy:
+            pantalla.blit(surf, (sx - cx, sy - cy), (sx, sy, ex - sx, ey - sy),
+                          special_flags=pygame.BLEND_RGBA_MULT)
 
     # ---------------------------------------------------- cache y dibujado
     def superficie_bajo_muros(self):
@@ -372,6 +392,72 @@ class Decoracion:
                     self._pintar_prop(surf, prop, 0)
             self._bajo_muros = surf
         return self._bajo_muros
+
+    def superficie_occlusion_muros(self):
+        """Sombra horneada en el pie de los muros, cacheada una vez por arena."""
+        if self._bajo_muros_ocl is None:
+            self._bajo_muros_ocl = self._pintar_oclusion_muros()
+        return self._bajo_muros_ocl
+
+    def _pintar_oclusion_muros(self):
+        """Sombra horneada en el pie de los muros. Da volumen sin coste por frame.
+
+        Va en una superficie aparte porque necesita BLEND_RGBA_MULT. En la capa
+        de decoracion la mezcla es BLEND_RGBA_ADD: ahi un pixel (0,0,0,70) suma
+        cero y la sombra no se veria. Con MULT el RGB se multiplica tal cual,
+        asi que la superficie va blanca opaca y la sombra se pinta en gris:
+        blanco no cambia nada, gris oscuro resta luz.
+
+        Ojo: BLEND_RGBA_MULT usa el RGB aunque el alfa valga 0. Una superficie
+        SRCALPHA sin pintar es (0,0,0,0) y multiplicaria el mapa entero a negro.
+        Por eso esta no lleva SRCALPHA y se rellena de blanco.
+
+        El degradado va de gris oscuro pegado al muro a blanco (invisible) a
+        10 px. Sin el degradado, el suelo se corta en un escalon recto y se
+        lee como un error de teselado, no como una sombra.
+        """
+        surf = pygame.Surface((self.arena.ancho, self.arena.alto))
+        surf.fill((255, 255, 255))
+        BLANCO = (255, 255, 255)
+        OSCURO = (108, 108, 122)
+        ALCANCE = 10
+
+        def _banda(x0, y0, x1, y1):
+            """Sombra perpendicular a una cara del muro, de la celda (x0,y0)
+            hacia dentro de la celda libre (x1,y1)."""
+            largo = max(1.0, math.hypot(x1 - x0, y1 - y0))
+            dx = (x1 - x0) / largo
+            dy = (y1 - y0) / largo
+            for k in range(ALCANCE):
+                f = k / float(ALCANCE - 1)
+                col = (int(round(OSCURO[0] + (BLANCO[0] - OSCURO[0]) * f)),
+                       int(round(OSCURO[1] + (BLANCO[1] - OSCURO[1]) * f)),
+                       int(round(OSCURO[2] + (BLANCO[2] - OSCURO[2]) * f)))
+                # Un pixel por paso. Dibujar una linea desde el muro hasta la
+                # distancia k hacia que el paso final (blanco) tapase toda la
+                # banda y la sombra no se viera.
+                surf.set_at((int(round(x0 + dx * k)),
+                             int(round(y0 + dy * k))), col)
+
+        # celdas_libres() es un generador: materializarlo aqui evita recorrer
+        # el mapa entero por cada muro (eran 4-analyses por muro).
+        libres = set(self.arena.celdas_libres())
+        for col, fila in self.arena.muros:
+            x, y = col * T, fila * T
+            # Sombra en las caras del muro que dan a suelo libre.
+            if (col, fila - 1) in libres:
+                for k in range(T):
+                    _banda(x + k, y, x + k, y - 1)
+            if (col, fila + 1) in libres:
+                for k in range(T):
+                    _banda(x + k, y + T - 1, x + k, y + T)
+            if (col - 1, fila) in libres:
+                for k in range(T):
+                    _banda(x, y + k, x - 1, y + k)
+            if (col + 1, fila) in libres:
+                for k in range(T):
+                    _banda(x + T - 1, y + k, x + T, y + k)
+        return surf
 
     def superficie_sobre_muros(self):
         """Capa 1: tuberias, cables, chatarra (encima del suelo)."""
