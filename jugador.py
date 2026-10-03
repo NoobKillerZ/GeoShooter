@@ -31,6 +31,10 @@ COL_ESCUDO = (140, 225, 255)
 COL_FLAMA = (255, 190, 90)
 COL_FLAMA_INT = (255, 245, 210)
 COL_BRILLO = (200, 230, 255)
+# Rim light del jugador. Por encima de COL_BRILLO a proposito: el jugador
+# tiene que ser el punto mas luminoso de la pantalla, por encima de los
+# enemigos, que bajan de valor para hundirse en el fondo (ver enemigos.py).
+COL_RIM = (234, 248, 255)
 
 # Silueta plana para las estelas del dash (colorkey + alpha)
 _SILUETA = None
@@ -330,6 +334,17 @@ class Jugador:
         casco = [rot(17, 0), rot(8, -9), rot(-9, -8), rot(-12, 0), rot(-9, 8), rot(8, 9)]
         pygame.draw.polygon(pantalla, COL_CONTORNO, casco, 2)
         pygame.draw.polygon(pantalla, COL_CUERPO, casco)
+        # Rim light: filo de luz en el borde que mira al frente-izquierda. Sin
+        # el, el casco se confunde con el suelo cuando la luz de la escena es
+        # baja. Va DESPUES del cuerpo para que la linea quede encima, y es
+        # mas claro que el brillo especular para que el jugador sea siempre lo
+        # mas luminoso de la pantalla.
+        rim = [rot(15, -3), rot(7, -9.5), rot(-8, -8.5), rot(-11, -3)]
+        pygame.draw.polygon(pantalla, COL_RIM, rim)
+        pygame.draw.line(pantalla, COL_RIM,
+                         rot(16, -2), rot(7, -9.5), 1)
+        pygame.draw.line(pantalla, COL_RIM,
+                         rot(7, -9.5), rot(-9, -8.5), 1)
         # Brillo superior
         brillo = [rot(13, 0), rot(6, -6), rot(-6, -5), rot(-6, -2), rot(6, -2)]
         pygame.draw.polygon(pantalla, COL_CUERPO_OSC, brillo)

@@ -1062,9 +1062,21 @@ class Enemigo:
             return
         r = int(self.radio)
         blanco = self.flash > 0
-        cuerpo = (255, 240, 240) if blanco else self.color
-        borde = (255, 255, 255) if blanco else _oscuro(self.color, 0.45)
-        brillo = (255, 255, 255) if blanco else _claro(self.color, 0.45)
+        if blanco:
+            cuerpo = (255, 240, 240)
+            base_valor = self.color
+            borde = (255, 255, 255)
+            brillo = (255, 255, 255)
+        else:
+            # Jerarquia de valor: el jugador lleva un rim light (lo mas claro
+            # de la pantalla) y el enemigo se hunde un poco hacia el tono del
+            # suelo, para que la vista vaya jugador -> enemigos -> fondo. Los
+            # jefes se quedan en su color puro: tienen que leerse como la
+            # amenaza mas brillante, no como un enemigo mas.
+            base_valor = self.color if self.es_jefe else _oscuro(self.color, 0.18)
+            cuerpo = base_valor
+            borde = _oscuro(base_valor, 0.45)
+            brillo = _claro(base_valor, 0.45)
         t = pygame.time.get_ticks() / 1000.0
 
         # Sombra
