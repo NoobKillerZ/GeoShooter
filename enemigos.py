@@ -353,6 +353,10 @@ class Enemigo:
         self.angulo = 0.0
         self.dirx, self.diry = 0.0, 0.0
         self.flash = 0
+        # Squash: frames que le quedan deformado tras un impacto, y con que
+        # fuerza. Al recibir dano se llenan los dos; se van vaciando solos.
+        self.squash = 0
+        self.squash_fuerza = 0.0
         self.impulso_x = 0.0
         self.impulso_y = 0.0
         self.dano_contacto = cfg.get("danio_contacto", 10)
@@ -401,6 +405,11 @@ class Enemigo:
                 cantidad *= frontal
         self.vida -= cantidad
         self.flash = 7
+        # Frames que le quedan de deformacion por squash. Un jefe pesa mas y
+        # se deforma menos: el mismo % en un radio de 60 px se lee como un
+        # glitch, no como un impacto.
+        self.squash = 7 if not self.es_jefe else 4
+        self.squash_fuerza = 0.18 if not self.es_jefe else 0.10
         if angulo is not None:
             # Empujon hacia atras: los impactos se sienten.
             fuerza = 70 if not self.es_jefe else 22
@@ -439,6 +448,8 @@ class Enemigo:
             self.cooldown -= 1
         if self.flash > 0:
             self.flash -= 1
+        if self.squash > 0:
+            self.squash -= 1
         if self.escudo_golpes > 0:
             self.escudo_golpes -= 1
         if self.parpadeo > 0:
@@ -1062,10 +1073,33 @@ class Enemigo:
         pantalla.blit(sombra, (px - r, py + r - 6))
 
         metodo = getattr(self, "_dib_" + self.tipo, None)
-        if metodo is not None:
-            metodo(pantalla, px, py, r, cuerpo, borde, brillo, t)
+        if metodo is None:
+            metodo = self._dibujar_jefe
+
+        # Squash: tras recibir un impacto el enemigo se deforma un poco y
+        # vuelve a su forma. Los 12 metodos _dib_ dibujan circulos con pygame
+        # y el radio de un circulo no admite escala por eje, asi que en vez de
+        # reescribir los 55 draw.circle se dibuja el enemigo a una superficie
+        # suelta y se blitea ya escalada.
+        #
+        # Se usa pygame.transform.scale y no smoothscale porque la diferencia
+        # se ve solo en los bordes y no compensa: 1.22 ms frente a 2.01 ms con
+        # los 28 enemigos reaccionando a la vez.
+        if self.squash > 0 and self.squash_fuerza > 0.0:
+            d = min(1.0, self.squash / 7.0) * self.squash_fuerza
+            sx = 1.0 + d
+            sy = 1.0 - d * 0.78
+            # Margen holgado: el jefe dibuja anillos a r*1.45 y el corredor
+            # una aleta a r*1.25. Sin esto esas partes se cortarian.
+            box = int(r * 3.2) + 4
+            sup = pygame.Surface((box * 2, box * 2), pygame.SRCALPHA)
+            metodo(sup, box, box, r, cuerpo, borde, brillo, t)
+            w = max(1, int(box * 2 * sx))
+            h = max(1, int(box * 2 * sy))
+            pantalla.blit(pygame.transform.scale(sup, (w, h)),
+                          (px - w // 2, py - h // 2))
         else:
-            self._dibujar_jefe(pantalla, px, py, r, cuerpo, borde, brillo, t)
+            metodo(pantalla, px, py, r, cuerpo, borde, brillo, t)
 
         # Barra de vida (los jefes la llevan en el HUD, no encima)
         if self.vida < self.vida_max and not self.es_jefe:
