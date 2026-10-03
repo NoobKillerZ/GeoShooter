@@ -193,6 +193,11 @@ class Juego:
         self.cam_x = 0.0
         self.cam_y = 0.0
         self.shake = 0
+        self.cam_kick = 0
+        self.cam_kick_max = 0
+        self.cam_kick_fuerza = 0.0
+        self.cam_kick_dx = 0.0
+        self.cam_kick_dy = 0.0
         self.hitstop = 0
         self.dano_flash = 0
         self.espera_oleada = 90
@@ -556,6 +561,16 @@ class Juego:
                                     (255, 230, 170) if critico else (255, 214, 150),
                                     0.30 if critico else 0.20,
                                     vida=5 if critico else 3)
+                # Kick direccional ligero de la camara. Empuja un poquito en
+                # la direccion de retroceso (contraria al angulo de disparo):
+                # no es un zoom, no escala la escena y no cuesta casi nada.
+                dxk = -math.cos(p.angulo)
+                dyk = -math.sin(p.angulo)
+                self.cam_kick_max = 3 if critico else 2
+                self.cam_kick_fuerza = 0.40 if critico else 0.25
+                self.cam_kick = self.cam_kick_max
+                self.cam_kick_dx = dxk
+                self.cam_kick_dy = dyk
                 if critico:
                     self.particulas.texto(
                         p.x, p.y - 10, "CRIT", (255, 235, 130), tamano=15, vida=30
@@ -625,10 +640,16 @@ class Juego:
         # el mundo se desplazaba de forma elastica al moverse y las distancias
         # a los enemigos parecian estirarse y comprimirse.
         jug = self.jugador
-        self.cam_x = jug.x - ANCHO / 2
-        self.cam_y = jug.y - ALTO / 2
-        self.cam_x = max(0.0, min(self.arena.ancho - ANCHO, self.cam_x))
-        self.cam_y = max(0.0, min(self.arena.alto - ALTO, self.cam_y))
+        cx = jug.x - ANCHO / 2
+        cy = jug.y - ALTO / 2
+        cx = max(0.0, min(self.arena.ancho - ANCHO, cx))
+        cy = max(0.0, min(self.arena.alto - ALTO, cy))
+        if self.cam_kick > 0:
+            self.cam_kick -= 1
+            k = self.cam_kick_fuerza * (self.cam_kick / float(self.cam_kick_max))
+            cx += self.cam_kick_dx * k * 0.12
+            cy += self.cam_kick_dy * k * 0.12
+        self.cam_x, self.cam_y = cx, cy
 
     def _actualizar_luces(self):
         """La luz del jugador le sigue; las demas solo parpadean."""
