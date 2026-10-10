@@ -59,6 +59,13 @@ COL_FONDO_EXT = (8, 8, 12)
 COL_TEXTO = (226, 232, 244)
 COL_TEXTO_SUAVE = (140, 148, 168)
 COL_ACENTO = (250, 210, 90)
+# Estela de la barra de vida tras recibir dano. Amarillo palido: se distingue
+# del relleno (verde o rojo) y del fondo de la barra sin competir con el
+# numero de vida, que es lo que hay que leer rapido.
+COL_VIDA_CHIP = (250, 206, 130)
+# Puntos de vida que la estela pierde por frame. Con vida_max de 100 y este
+# valor, la estela tarda ~100 frames (algo mas de 1 s) en alcanzar la vida real.
+CAIDA_VIDA_CHIP = 1.0
 
 # Enemigos normales y a partir de que oleada empiezan a salir. Los jefes van
 # aparte: uno cada 3 oleadas, rotando entre los cuatro.
@@ -137,6 +144,9 @@ class Juego:
         self._dano_flash_pintado = -1
         self._minimapa = None
         self._minimapa_arena = None
+        # Estela de la barra de vida. La inicializa reiniciar() al crear la
+        # partida; se declara aqui para que exista antes del primer frame.
+        self.vida_chip = 0
         # Cache de textos del HUD: renderizar una fuente es de lo mas caro del
         # frame y casi todo lo que se escribe es el mismo texto cada cuadro
         # ("VIDA", "OLEADA 3", "[T] TIENDA"...). Se cachea por
@@ -174,6 +184,7 @@ class Juego:
         # Roguelite puro: cada partida arranca con la cartera limpia.
         self.cartera = progresion.Cartera()
         self.jugador = Jugador(*self.arena.punto_spawn((0, 0), 0), cartera=self.cartera)
+        self.vida_chip = float(self.jugador.vida)
         self.enemigos = []
         self.proyectiles = []
         self.powerups = []
@@ -842,14 +853,29 @@ class Juego:
             pygame.draw.rect(sup, (*acento, 60), sup.get_rect(), border_radius=12)
         self.pantalla.blit(sup, rect.topleft)
 
-    def _barra(self, rect, fraccion, color_fondo, color_relleno):
-        pygame.draw.rect(self.pantalla, color_fondo, rect, border_radius=4)
+    def _barra(self, rect, fraccion, color_fondo, color_relleno, pintar_fondo=True):
+        if pintar_fondo:
+            pygame.draw.rect(self.pantalla, color_fondo, rect, border_radius=4)
         ancho = int(rect.width * max(0.0, min(1.0, fraccion)))
         if ancho > 0:
             pygame.draw.rect(
                 self.pantalla, color_relleno,
                 pygame.Rect(rect.x, rect.y, ancho, rect.height), border_radius=4,
             )
+
+    def _actualizar_vida_chip(self):
+        """Barra fantasma que baja despues de que bajen la vida real.
+
+        Al recibir dano la barra de vida cae de golpe y el jugador no llega a
+        ver cuanto perdio. El chip es la estela de la vida anterior: se queda
+        un momento en el valor viejo y luego se vacia, asi el golpe se lee.
+        Al curar sube de golpe, sin estela (recuperar no debe parecer dano).
+        """
+        vida = self.jugador.vida
+        if vida > self.vida_chip:
+            self.vida_chip = vida
+        elif vida < self.vida_chip:
+            self.vida_chip = max(vida, self.vida_chip - CAIDA_VIDA_CHIP)
 
     def _dibujar_hud(self):
         jug = self.jugador
@@ -859,9 +885,19 @@ class Juego:
         # --- Panel de vida (arriba izquierda)
         panel_vida = pygame.Rect(14, 12, 268, 60)
         self._panel(panel_vida, acento=(94, 220, 126))
-        self._barra(pygame.Rect(24, 44, 248, 16),
+        self._actualizar_vida_chip()
+        rect_vida = pygame.Rect(24, 44, 248, 16)
+        # Primero el chip, luego la vida real encima. El relleno real no puede
+        # volver a pintar el fondo completo, porque taparía la estela; si hay
+        # chip, ese ya pintó el fondo completo.
+        hay_chip = self.vida_chip > jug.vida
+        if hay_chip:
+            self._barra(rect_vida, self.vida_chip / jug.vida_max,
+                        (44, 30, 34), COL_VIDA_CHIP)
+        self._barra(rect_vida,
                     jug.vida / jug.vida_max, (44, 30, 34),
-                    (94, 220, 126) if jug.vida / jug.vida_max > 0.35 else (235, 84, 84))
+                    (94, 220, 126) if jug.vida / jug.vida_max > 0.35 else (235, 84, 84),
+                    pintar_fondo=not hay_chip)
         # Segmentos cada 25 puntos
         for i in range(1, 4):
             x = 24 + 248 * i // 4
@@ -869,6 +905,11 @@ class Juego:
         self._blit_texto("VIDA", fch, COL_TEXTO_SUAVE, 24, 22)
         self._blit_texto("%d" % max(0, jug.vida), fch, COL_TEXTO,
                          24 + 248, 22, alineacion="der")
+        # El numero del chip solo mientras la estela siga separada: en cuanto
+        # alcanza a la vida real desaparece y el HUD queda limpio.
+        if self.vida_chip > jug.vida + 0.5:
+            self._blit_texto("-%d" % int(self.vida_chip - jug.vida), fpeq,
+                             COL_VIDA_CHIP, 24 + 248, 40, alineacion="der")
         if jug.escudo > 0:
             self._blit_texto("ESCUDO %ds" % (jug.escudo // 60), fpeq,
                              (140, 225, 255), panel_vida.right - 84, 12)

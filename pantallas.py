@@ -13,6 +13,8 @@ import random
 import pygame
 
 import armas
+import arena
+import decoracion
 import iconos
 import progresion
 
@@ -122,6 +124,51 @@ class FondoAnimado:
             a = int(3 * (1 - r / 300))
             pygame.draw.circle(halo, (70, 90, 140, a), (self.ancho // 2, self.alto // 2 - 40), r)
         pantalla.blit(halo, (0, 0))
+
+
+class FondoArenaVivo:
+    """El mapa real, en movimiento lento, detrás del título.
+
+    No es una imagen de fondo: usa la misma arena, suelo cacheado, oclusión
+    y polvo que la partida. Un velo oscuro la deja atrás para que el texto
+    siga siendo lo primero que se lee.
+    """
+
+    SEMILLA_DEMO = 20240
+    CICLO_SEGUNDOS = 42.0
+
+    def __init__(self, ancho, alto):
+        self.ancho = ancho
+        self.alto = alto
+        self.arena = arena.Arena(semilla=self.SEMILLA_DEMO)
+        self.decoracion = decoracion.Decoracion(self.arena)
+        self.max_x = max(0.0, float(self.arena.ancho - ancho))
+        self.max_y = max(0.0, float(self.arena.alto - alto))
+        self.tiempo = 0.0
+        self.cam_x = self.max_x / 2.0
+        self.cam_y = self.max_y / 2.0
+        self.velo = pygame.Surface((ancho, alto), pygame.SRCALPHA)
+        self.velo.fill((7, 9, 15, 168))
+
+    def actualizar(self, segundos=1.0 / 60.0):
+        self.tiempo += segundos
+        recorrido = math.tau * self.tiempo / self.CICLO_SEGUNDOS
+        # Lissajous lenta: la cámara no vuelve sobre sus pasos de inmediato.
+        self.cam_x = self.max_x * (0.5 - 0.5 * math.cos(recorrido))
+        self.cam_y = self.max_y * (0.5 - 0.5 * math.cos(recorrido * 1.3 + 1.1))
+
+    def dibujar(self, pantalla):
+        self.arena.dibujar(pantalla, self.cam_x, self.cam_y, self.ancho, self.alto)
+        self.decoracion.dibujar_bajo_muros(pantalla, self.cam_x, self.cam_y,
+                                           self.ancho, self.alto)
+        self.decoracion.dibujar_sobre_muros_estatica(pantalla, self.cam_x,
+                                                     self.cam_y, self.ancho,
+                                                     self.alto)
+        pantalla.blit(self.velo, (0, 0))
+        # El polvo va encima del velo: es lo que sigue moviéndose incluso en
+        # las zonas más oscuras del fondo.
+        self.decoracion.dibujar_polvo(pantalla, self.cam_x, self.cam_y,
+                                      self.tiempo, self.ancho, self.alto)
 
 
 CONTROLES = [
@@ -653,7 +700,7 @@ def pantalla_inicio(pantalla, reloj, ancho, alto, records=None):
     f_sub = pygame.font.SysFont("consolas", 21)
     f_ch = pygame.font.SysFont("consolas", 17)
     f_btn = pygame.font.SysFont("consolas", 24, bold=True)
-    fondo = FondoAnimado(ancho, alto)
+    fondo = FondoArenaVivo(ancho, alto)
     lay = layout_inicio(ancho, alto)
     y_titulo, y_sub = lay["titulo"][1], lay["subtitulo"][1]
     rect_controles = lay["controles"]

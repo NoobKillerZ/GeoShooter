@@ -475,9 +475,33 @@ class Decoracion:
             ancho_visor = pantalla.get_width()
         if alto_visor is None:
             alto_visor = pantalla.get_height()
+        self.dibujar_sobre_muros_estatica(pantalla, cam_x, cam_y,
+                                          ancho_visor=ancho_visor,
+                                          alto_visor=alto_visor)
+        self.dibujar_polvo(pantalla, cam_x, cam_y, t,
+                           ancho_visor=ancho_visor, alto_visor=alto_visor)
+
+    def dibujar_sobre_muros_estatica(self, pantalla, cam_x, cam_y,
+                                     ancho_visor=None, alto_visor=None):
+        """Solo la capa alta cacheada, sin polvo."""
+        if ancho_visor is None:
+            ancho_visor = pantalla.get_width()
+        if alto_visor is None:
+            alto_visor = pantalla.get_height()
         self._blit_camara(self.superficie_sobre_muros(), pantalla,
                           cam_x, cam_y, ancho_visor, alto_visor)
-        # Polvo: barato, son circulos sueltos que flotan.
+
+    def dibujar_polvo(self, pantalla, cam_x, cam_y, t, ancho_visor=None, alto_visor=None):
+        """Solo las motas animadas, sin la capa alta cacheada.
+
+        Sirve para pintar el polvo encima de un velo del menú: si se pintara
+        junto con la capa alta y luego se oscureciera la pantalla, el polvo
+        también quedaría apagado y el fondo dejaría de moverse.
+        """
+        if ancho_visor is None:
+            ancho_visor = pantalla.get_width()
+        if alto_visor is None:
+            alto_visor = pantalla.get_height()
         for prop in self.props:
             if prop.tipo != "polvo":
                 continue
