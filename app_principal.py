@@ -891,12 +891,15 @@ class Juego:
         # volver a pintar el fondo completo, porque taparía la estela; si hay
         # chip, ese ya pintó el fondo completo.
         hay_chip = self.vida_chip > jug.vida
+        vm = max(1, int(jug.vida_max))
+        frac_vida = max(0.0, min(1.0, jug.vida / vm))
+        frac_chip = max(0.0, min(1.0, self.vida_chip / vm))
         if hay_chip:
-            self._barra(rect_vida, self.vida_chip / jug.vida_max,
+            self._barra(rect_vida, frac_chip,
                         (44, 30, 34), COL_VIDA_CHIP)
         self._barra(rect_vida,
-                    jug.vida / jug.vida_max, (44, 30, 34),
-                    (94, 220, 126) if jug.vida / jug.vida_max > 0.35 else (235, 84, 84),
+                    frac_vida, (44, 30, 34),
+                    (94, 220, 126) if frac_vida > 0.35 else (235, 84, 84),
                     pintar_fondo=not hay_chip)
         # Segmentos cada 25 puntos
         for i in range(1, 4):
@@ -1011,7 +1014,8 @@ class Juego:
             x0 = (ANCHO - w) // 2
             rect = pygame.Rect(x0, 22, w, 22)
             pygame.draw.rect(p, (18, 12, 20), rect.inflate(6, 6), border_radius=10)
-            self._barra(rect, jefe.vida / jefe.vida_max,
+            frac_jefe = max(0.0, min(1.0, jefe.vida / max(1, int(jefe.vida_max))))
+            self._barra(rect, frac_jefe,
                         _oscuro_50(jefe.color), jefe.color)
             pygame.draw.rect(p, _claro(jefe.color, 0.4), rect, 2, border_radius=8)
             # Brillo en la barra del jefe
